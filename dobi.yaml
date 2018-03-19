@@ -1,0 +1,66 @@
+meta:
+  project: swagger-gen 
+
+mount=source:
+  bind: .
+  path: /go/src/github.com/dnephin/swagger-gen
+
+mount=depsources:
+ bind: ./.depsources
+ path: /go/pkg/dep/sources
+
+image=builder:
+  image: swagger-gen-dev
+  context: .
+  steps: |
+    FROM    golang:1.10-alpine
+    RUN     apk add -U curl git bash
+
+    ARG     FILEWATCHER_SHA=v0.2.0
+    RUN     go get -d github.com/dnephin/filewatcher && \
+            cd /go/src/github.com/dnephin/filewatcher && \
+            git checkout -q "$FILEWATCHER_SHA" && \
+            go build -v -o /usr/bin/filewatcher . && \
+            rm -rf /go/src/* /go/pkg/* /go/bin/*
+
+    ARG     DEP_TAG=v0.4.1
+    RUN     go get -d github.com/golang/dep/cmd/dep && \
+            cd /go/src/github.com/golang/dep && \
+            git checkout -q "$DEP_TAG" && \
+            go build -v -o /usr/bin/dep ./cmd/dep && \
+            rm -rf /go/src/* /go/pkg/* /go/bin/*
+
+    ENV     CGO_ENABLED=0 PS1='# '
+    WORKDIR /go/src/github.com/dnephin/swagger-gen
+
+job=shell:
+  use: builder
+  mounts: [source, depsources]
+  interactive: true
+  command: sh
+
+job=watch:
+  use: builder
+  mounts: [source]
+  interactive: true
+  command: "filewatcher 
+      -e create -e write
+      -x '**/*__jb_old___'
+      -x '**/*__jb_tmp___'
+      -x 'vendor'
+      go test -v './${dir}'
+      "
+
+job=test-unit:
+  use: builder
+  mounts: [source]
+  interactive: true
+  command: go test -v ./...
+
+job=deps:
+  use: builder
+  mounts: [source, depsources]
+  command: dep ensure
+
+alias=test:
+  tasks: [test-unit]

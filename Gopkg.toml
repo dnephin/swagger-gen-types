@@ -1,0 +1,25 @@
+
+
+[prune]
+  go-tests = true
+  unused-packages = true
+
+[[constraint]]
+  name = "github.com/spf13/pflag"
+  version = "1.0.0"
+
+[[constraint]]
+  branch = "master"
+  name = "github.com/go-openapi/loads"
+
+[[constraint]]
+  name = "github.com/gotestyourself/gotestyourself"
+  version = "1.3.0"
+
+[[constraint]]
+  name = "github.com/dave/jennifer"
+  version = "0.18.0"
+
+[[constraint]]
+  name = "github.com/pkg/errors"
+  version = "0.8.0"
