@@ -27,14 +27,20 @@ func buildStructType(name string, schema spec.Schema) []*jen.Statement {
 	var extraTypes []*jen.Statement
 	comment := &jen.Statement{}
 	addComment(comment, schema)
-	structType := jen.Type().Id(name).StructFunc(func(g *jen.Group) {
+
+	structName := schema.Title
+	if structName == "" {
+		structName = name
+	}
+
+	structType := jen.Type().Id(structName).StructFunc(func(g *jen.Group) {
 		for _, propName := range sortedKeys(schema.Properties) {
 			property := schema.Properties[propName]
 
 			addComment(g, property)
-			// TODO: support x-name (or something like that) for setting the field name
-			field := jen.Id(toGoName(propName))
-			fieldType, extras := buildType(toGoName(name)+toGoName(propName), property)
+			name := fieldName(propName, property)
+			field := jen.Id(name)
+			fieldType, extras := buildType(structName+name, property)
 			if len(extras) > 0 {
 				extraTypes = append(extraTypes, extras...)
 			}
@@ -62,6 +68,7 @@ func buildType(propName string, schema spec.Schema) (*jen.Statement, []*jen.Stat
 	case len(schema.Type) > 1:
 		panic(fmt.Sprintf("%s: multi-type schema not yet supported: %s", propName, schema.Type))
 	case len(schema.Type) == 0:
+		// TODO: this needs to lookup title in Ref schema
 		return jen.Id(path.Base(schema.Ref.String())), nil
 	}
 
@@ -123,6 +130,13 @@ func fieldTags(propName string, property spec.Schema) map[string]string {
 		tags = append(tags, "omitempty")
 	}
 	return map[string]string{"json": strings.Join(tags, ",")}
+}
+
+func fieldName(propName string, property spec.Schema) string {
+	if property.Title != "" {
+		return property.Title
+	}
+	return toGoName(propName)
 }
 
 func isRequired(propName string, property spec.Schema) bool {
