@@ -12,9 +12,14 @@ import (
 	"github.com/go-openapi/spec"
 )
 
-func generateDefinition(file *jen.File, name string, schema spec.Schema) {
+type generateContext struct {
+	definitionsPackage string
+	file               *jen.File
+}
+
+func generateDefinition(gen generateContext, name string, schema spec.Schema) {
 	// TODO: can definitions be array type?
-	addStatementsToFile(file, buildStructType(name, schema))
+	addStatementsToFile(gen.file, buildStructType(gen, name, schema))
 }
 
 func addStatementsToFile(file *jen.File, stmts []*jen.Statement) {
@@ -23,7 +28,7 @@ func addStatementsToFile(file *jen.File, stmts []*jen.Statement) {
 	}
 }
 
-func buildStructType(name string, schema spec.Schema) []*jen.Statement {
+func buildStructType(gen generateContext, name string, schema spec.Schema) []*jen.Statement {
 	var extraTypes []*jen.Statement
 	comment := &jen.Statement{}
 	addComment(comment, schema)
@@ -40,7 +45,7 @@ func buildStructType(name string, schema spec.Schema) []*jen.Statement {
 			addComment(g, property)
 			name := fieldName(propName, property)
 			field := jen.Id(name)
-			fieldType, extras := buildType(structName+name, property)
+			fieldType, extras := buildType(gen, structName+name, property)
 			if len(extras) > 0 {
 				extraTypes = append(extraTypes, extras...)
 			}
@@ -63,18 +68,29 @@ type commentable interface {
 	Comment(str string) *jen.Statement
 }
 
-func buildType(propName string, schema spec.Schema) (*jen.Statement, []*jen.Statement) {
-	switch {
-	case len(schema.Type) > 1:
+func buildType(gen generateContext, propName string, schema spec.Schema) (*jen.Statement, []*jen.Statement) {
+	if len(schema.Type) > 1 {
 		panic(fmt.Sprintf("%s: multi-type schema not yet supported: %s", propName, schema.Type))
-	case len(schema.Type) == 0:
-		// TODO: this needs to lookup title in Ref schema
-		return jen.Id(path.Base(schema.Ref.String())), nil
 	}
 
 	stmt := &jen.Statement{}
 	if value, ok := schema.Extensions.GetBool("x-nullable"); ok && value {
 		stmt.Op("*")
+	}
+
+	if len(schema.Type) == 0 {
+		switch {
+		case schema.Ref.String() != "":
+			// TODO: this needs to lookup title in Ref schema?
+
+			if gen.definitionsPackage != "" && isDefinitionRef(schema.Ref) {
+				return stmt.Qual(gen.definitionsPackage, path.Base(schema.Ref.String())), nil
+			}
+			return stmt.Id(path.Base(schema.Ref.String())), nil
+		default:
+			panic(fmt.Sprintf("%s: missing type and ref", propName))
+		}
+
 	}
 
 	switch schema.Type[0] {
@@ -101,10 +117,10 @@ func buildType(propName string, schema spec.Schema) (*jen.Statement, []*jen.Stat
 	case "object":
 		switch {
 		case len(schema.Properties) > 0:
-			extras := buildStructType(propName, schema)
+			extras := buildStructType(gen, propName, schema)
 			return stmt.Id(propName), extras
 		case schema.AdditionalProperties != nil && schema.AdditionalProperties.Schema != nil:
-			fieldType, extras := buildType(propName, *schema.AdditionalProperties.Schema)
+			fieldType, extras := buildType(gen, propName, *schema.AdditionalProperties.Schema)
 			return stmt.Map(jen.String()).Add(fieldType), extras
 		case schema.AdditionalProperties != nil:
 			return stmt.Map(jen.String()).Interface(), nil
@@ -114,7 +130,7 @@ func buildType(propName string, schema spec.Schema) (*jen.Statement, []*jen.Stat
 
 	case "array":
 		if schema.Items.Schema != nil {
-			fieldType, extra := buildType(propName, *schema.Items.Schema)
+			fieldType, extra := buildType(gen, propName, *schema.Items.Schema)
 			return stmt.Index().Add(fieldType), extra
 		} else {
 			panic("multi-type array schema not yet supported")
@@ -207,4 +223,9 @@ func sortedKeys(m map[string]spec.Schema) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// TODO: is there a safer way to perform this check?
+func isDefinitionRef(ref spec.Ref) bool {
+	return strings.HasPrefix(ref.String(), "#/definitions/")
 }

@@ -12,11 +12,12 @@ import (
 )
 
 type options struct {
-	spec        string
-	pkgname     string
-	definitions []string
-	operations  []string
-	output      string
+	spec               string
+	pkgname            string
+	definitions        []string
+	operations         []string
+	output             string
+	definitionsPackage string
 }
 
 func main() {
@@ -47,6 +48,8 @@ func parseOpts(args []string) (*options, error) {
 	flags.StringSliceVarP(&opts.operations, "operations", "p", nil,
 		"generate response types for this operation")
 	flags.StringVarP(&opts.output, "output", "o", "types.go", "write output to file")
+	flags.StringVar(&opts.definitionsPackage, "definitions-package", "types",
+		"use this package name when operations reference definition types")
 
 	return opts, flags.Parse(args)
 }
@@ -60,22 +63,25 @@ func run(opts *options) error {
 	file := jen.NewFile(opts.pkgname)
 	addCodeGeneratedComment(file)
 
+	gen := generateContext{file: file}
+
 	sort.Strings(opts.definitions)
 	for _, definition := range opts.definitions {
 		def, ok := doc.Spec().Definitions[definition]
 		if !ok {
 			return errors.Errorf("%s not found in spec", definition)
 		}
-		generateDefinition(file, definition, def)
+		generateDefinition(gen, definition, def)
 	}
 
+	gen.definitionsPackage = opts.definitionsPackage
 	sort.Strings(opts.operations)
 	for _, operation := range opts.operations {
 		method, path, op, ok := doc.Analyzer.OperationForName(operation)
 		if !ok {
 			return errors.Errorf("%s not found in spec", operation)
 		}
-		generateOperation(file, operation, method, path, op)
+		generateOperation(gen, operation, method, path, op)
 	}
 
 	return file.Save(opts.output)
